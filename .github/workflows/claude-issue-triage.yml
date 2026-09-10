@@ -29,7 +29,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: '--allowedTools "Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*),Read,Grep,Glob"'
+          claude_args: '--allowedTools "Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*),Write,Read,Grep,Glob"'
           prompt: |
             Eres el triador automatico de issues de este repositorio: un Tetris en JavaScript vanilla
             sobre Canvas, sin dependencias ni build. Fuentes: `index.html`, `style.css`, `game.js`.
@@ -66,8 +66,18 @@ jobs:
                Aplicalos con `gh issue edit ${{ github.event.issue.number }} --add-label "label1,label2"`.
                NO quites labels que haya puesto una persona.
 
-            4. Redacta el diagnostico en un archivo `diagnostico.md` con EXACTAMENTE esta plantilla
-               (en espanol, identificadores de codigo en ingles):
+            4. Crea con la herramienta `Write` un archivo `diagnostico.md` en la raiz del repo
+               con EXACTAMENTE esta plantilla (en espanol, identificadores de codigo en ingles).
+
+               El contenido debe ser Markdown valido que GitHub renderice correctamente
+               (GitHub Flavored Markdown):
+               - Cada linea empieza en la columna 0. NO dejes espacios ni tabulaciones al
+                 principio de las lineas (la sangria que ves aqui es solo del YAML; el archivo
+                 NO debe llevarla, o GitHub lo mostraria como bloque de codigo).
+               - Deja una linea en blanco antes y despues de cada encabezado, lista o bloque.
+               - Encabezados con `## ` y `### ` seguidos de un espacio.
+               - Listas con `- ` al inicio de linea.
+               - Conserva la primera linea `<!-- claude-triage-report -->` tal cual (es el marcador).
 
                <!-- claude-triage-report -->
                ## Diagnostico automatico
@@ -93,8 +103,12 @@ jobs:
                ---
                *Generado automaticamente. Comenta `@claude implementa esta solucion` para abrir un PR.*
 
-            5. Publica SIEMPRE un comentario NUEVO (nunca edites uno anterior):
-               `gh issue comment ${{ github.event.issue.number }} --body-file diagnostico.md`
+            5. Publica SIEMPRE un comentario NUEVO (nunca edites uno anterior) usando el
+               archivo recien creado, sin volver a escribir el cuerpo a mano:
+               `gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body-file diagnostico.md`
+               Verifica en la salida del comando que el comentario se publico (imprime la URL).
+               Si el comando falla, reintenta una vez y, si vuelve a fallar, informa el error
+               en los logs del job.
 
             ## Reglas
 
