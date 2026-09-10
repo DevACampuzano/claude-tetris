@@ -1,0 +1,104 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    # No re-triar issues cerrados ni los abiertos por bots
+    if: github.event.issue.state == 'open' && github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # Necesario para aplicar labels y comentar el diagnostico
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Triage issue con Claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--allowedTools "Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*),Read,Grep,Glob"'
+          prompt: |
+            Eres el triador automatico de issues de este repositorio: un Tetris en JavaScript vanilla
+            sobre Canvas, sin dependencias ni build. Fuentes: `index.html`, `style.css`, `game.js`.
+            Lee `CLAUDE.md` antes de nada para respetar sus convenciones.
+
+            Trabaja sobre el issue numero ${{ github.event.issue.number }} del repo ${{ github.repository }}.
+
+            ## Pasos
+
+            1. Lee el issue completo:
+               `gh issue view ${{ github.event.issue.number }} --json title,body,labels,comments,author`
+               Fijate si ya hay comentarios previos con el marcador `<!-- claude-triage-report -->`:
+               si los hay, esta ejecucion es un RE-ANALISIS tras una edicion del issue.
+
+            2. Explora el codigo para fundamentar el diagnostico. Usa `Read` y `Grep` sobre
+               `game.js`, `index.html`, `style.css`, `README.md` y `CLAUDE.md`. Identifica las
+               funciones y lineas concretas implicadas. Funciones clave del proyecto:
+               `init`, `loop`, `collide`, `tryRotate`, `rotateCW`, `clearLines`, `lockPiece`,
+               `merge`, `spawn`, `ghostY`, `togglePause`, `draw`, `drawBlock`, `drawNext`.
+               Recuerda la restriccion: `COLS`, `ROWS`, `BLOCK` en `game.js` deben ir sincronizados
+               con el `width`/`height` del `<canvas id="board">` de `index.html`.
+
+            3. Elige entre 1 y 3 labels EXCLUSIVAMENTE de esta lista (no inventes ni crees labels):
+               - `bug` — algo no funciona como deberia
+               - `enhancement` — nueva funcionalidad o mejora
+               - `documentation` — cambios en README o documentacion
+               - `question` — falta informacion o es una duda
+               - `accessibility` — afecta a personas con discapacidad
+               - `duplicate` — ya existe otro issue igual
+               - `good first issue` — bueno para quien empieza
+               - `help wanted` — necesita atencion extra
+               - `invalid` — el reporte no tiene sentido / no es accionable
+               - `wontfix` — no se va a trabajar
+               Aplicalos con `gh issue edit ${{ github.event.issue.number }} --add-label "label1,label2"`.
+               NO quites labels que haya puesto una persona.
+
+            4. Redacta el diagnostico en un archivo `diagnostico.md` con EXACTAMENTE esta plantilla
+               (en espanol, identificadores de codigo en ingles):
+
+               <!-- claude-triage-report -->
+               ## Diagnostico automatico
+
+               **Tipo:** bug | mejora | duda | documentacion
+               **Labels aplicados:** ...
+               **Contexto:** Analisis inicial. | Re-analisis tras edicion del issue (cambios respecto al anterior: ...).
+
+               ### Resumen
+               ### Reproduccion / comportamiento esperado
+               ### Area afectada
+               Archivos y funciones concretas, con referencias tipo `game.js:123`.
+               ### Causa raiz probable
+               Si no hay evidencia suficiente, dilo claramente en vez de inventar.
+               ### Enfoque de solucion propuesto
+               Pasos concretos y ordenados. Si se tocan dimensiones, recordar sincronizar
+               `COLS`/`ROWS`/`BLOCK` con el `<canvas>` de `index.html`.
+               ### Riesgos / efectos secundarios
+               ### Criterios de aceptacion
+               ### Informacion faltante
+               Solo si el issue es ambiguo; si no, escribe "Ninguna".
+
+               ---
+               *Generado automaticamente. Comenta `@claude implementa esta solucion` para abrir un PR.*
+
+            5. Publica SIEMPRE un comentario NUEVO (nunca edites uno anterior):
+               `gh issue comment ${{ github.event.issue.number }} --body-file diagnostico.md`
+
+            ## Reglas
+
+            - Toda la salida en espanol, con acentos correctos.
+            - No inventes causas ni lineas de codigo: verifica en los archivos.
+            - Si el issue no es accionable, aplica `invalid` o `question` y explica que falta.
+            - No abras PRs ni modifiques codigo fuente: tu unico trabajo es etiquetar y diagnosticar.
