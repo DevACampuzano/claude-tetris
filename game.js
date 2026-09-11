@@ -150,6 +150,7 @@ function spawn() {
   next = randomPiece();
   if (collide(current.shape, current.x, current.y)) {
     endGame();
+    return;
   }
   drawNext();
 }
@@ -198,6 +199,8 @@ function draw() {
     for (let c = 0; c < COLS; c++)
       drawBlock(ctx, c, r, board[r][c], BLOCK);
 
+  if (gameOver) return; // current piece collides at spawn; don't draw it over the stack
+
   // ghost
   const gy = ghostY();
   for (let r = 0; r < current.shape.length; r++)
@@ -225,6 +228,7 @@ function drawNext() {
 function endGame() {
   gameOver = true;
   cancelAnimationFrame(animId);
+  draw(); // paint the final frame with the locked stack before the loop stops
   overlayTitle.textContent = 'GAME OVER';
   overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
   overlay.classList.remove('hidden');
@@ -256,6 +260,7 @@ function loop(ts) {
       lockPiece();
     }
   }
+  if (gameOver) return; // endGame() already painted the final frame and stopped the loop
   draw();
   animId = requestAnimationFrame(loop);
 }
