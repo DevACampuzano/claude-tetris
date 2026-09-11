@@ -101,6 +101,15 @@ const controlsList = document.getElementById('controls-list');
 const controlsListPanel = document.getElementById('controls-list-panel');
 const startLevelSelect = document.getElementById('start-level');
 const skinSelect = document.getElementById('skin-select');
+const nameEntry = document.getElementById('name-entry');
+const playerNameInput = document.getElementById('player-name');
+const saveScoreBtn = document.getElementById('save-score-btn');
+const overlayScores = document.getElementById('overlay-scores');
+const startScreen = document.getElementById('start-screen');
+const startScoresEl = document.getElementById('start-scores');
+const startMaxLinesEl = document.getElementById('start-max-lines');
+const playBtn = document.getElementById('play-btn');
+const resetScoresBtn = document.getElementById('reset-scores-btn');
 
 const MAX_START_LEVEL = 15;
 
@@ -137,6 +146,97 @@ function populateStartLevelOptions() {
     option.textContent = lvl;
     startLevelSelect.appendChild(option);
   }
+}
+
+const SCORES_KEY = 'tetris.highscores';
+const STATS_KEY = 'tetris.stats';
+
+function loadScores() {
+  try {
+    const raw = localStorage.getItem(SCORES_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveScores(list) {
+  try {
+    localStorage.setItem(SCORES_KEY, JSON.stringify(list));
+  } catch {
+    // ignore storage errors (e.g. quota exceeded, private mode)
+  }
+}
+
+function qualifies(scoreValue) {
+  const list = loadScores();
+  return list.length < 5 || scoreValue > list[list.length - 1].score;
+}
+
+function addScore(name, scoreValue, linesValue, levelValue) {
+  const list = loadScores();
+  const entry = { name, score: scoreValue, lines: linesValue, level: levelValue, date: new Date().toISOString() };
+  list.push(entry);
+  list.sort((a, b) => b.score - a.score);
+  list.splice(5);
+  const index = list.indexOf(entry);
+  saveScores(list);
+  return index;
+}
+
+function loadStats() {
+  try {
+    const raw = localStorage.getItem(STATS_KEY);
+    const stats = raw ? JSON.parse(raw) : {};
+    return { maxLines: Number(stats.maxLines) || 0 };
+  } catch {
+    return { maxLines: 0 };
+  }
+}
+
+function saveStats(stats) {
+  try {
+    localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function resetScores() {
+  try {
+    localStorage.removeItem(SCORES_KEY);
+    localStorage.removeItem(STATS_KEY);
+  } catch {
+    // ignore storage errors
+  }
+  renderScoreTable(startScoresEl);
+  renderScoreTable(overlayScores);
+  updateMaxLinesDisplay();
+}
+
+function renderScoreTable(containerEl, highlightIndex) {
+  const list = loadScores();
+  if (!list.length) {
+    containerEl.innerHTML = '<p class="score-empty">Sin records todavia</p>';
+    return;
+  }
+  const rows = list.map((entry, i) => {
+    const cls = i === highlightIndex ? 'score-row highlight' : 'score-row';
+    return `<div class="${cls}"><span class="score-rank">${i + 1}</span><span class="score-name">${escapeHtml(entry.name)}</span><span class="score-value">${entry.score.toLocaleString()}</span></div>`;
+  }).join('');
+  containerEl.innerHTML = rows;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function updateMaxLinesDisplay() {
+  const stats = loadStats();
+  startMaxLinesEl.textContent = `Maximo de lineas: ${stats.maxLines}`;
 }
 
 function createBoard() {
@@ -326,6 +426,8 @@ function draw() {
   }
   drawGrid();
 
+  if (!board) return; // game not started yet (start screen visible)
+
   // board
   for (let r = 0; r < ROWS; r++)
     for (let c = 0; c < COLS; c++)
@@ -354,6 +456,7 @@ function drawNext() {
     nextCtx.fillStyle = boardBg;
     nextCtx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
   }
+  if (!next) return; // game not started yet (start screen visible)
   const shape = next.shape;
   const offX = Math.floor((4 - shape[0].length) / 2);
   const offY = Math.floor((4 - shape.length) / 2);
@@ -368,7 +471,26 @@ function endGame() {
   draw(); // paint the final frame with the locked stack before the loop stops
   overlayTitle.textContent = 'GAME OVER';
   overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
+
+  const stats = loadStats();
+  if (lines > stats.maxLines) {
+    stats.maxLines = lines;
+    saveStats(stats);
+  }
+
+  const qualified = qualifies(score);
+  nameEntry.classList.toggle('hidden', !qualified);
+  if (qualified) playerNameInput.value = '';
+  renderScoreTable(overlayScores);
   overlay.classList.remove('hidden');
+  if (qualified) playerNameInput.focus();
+}
+
+function submitScore() {
+  const name = playerNameInput.value.trim() || 'Anónimo';
+  const index = addScore(name, score, lines, level);
+  nameEntry.classList.add('hidden');
+  renderScoreTable(overlayScores, index);
 }
 
 function togglePause() {
@@ -381,6 +503,8 @@ function togglePause() {
   } else {
     cancelAnimationFrame(animId);
     startLevelSelect.value = startLevel;
+    nameEntry.classList.add('hidden'); // clear any leftover game-over state
+    overlayScores.innerHTML = '';
     pauseMenu.classList.remove('hidden');
   }
 }
@@ -417,11 +541,13 @@ function init() {
   updateHUD();
   overlay.classList.add('hidden');
   pauseMenu.classList.add('hidden');
+  nameEntry.classList.add('hidden'); // reset leftover state from a previous game over
   cancelAnimationFrame(animId);
   animId = requestAnimationFrame(loop);
 }
 
 document.addEventListener('keydown', e => {
+  if (!current) return; // game not started yet
   if (e.code === 'KeyP' || e.code === 'Escape') {
     if (e.repeat) return;
     togglePause();
@@ -479,6 +605,19 @@ function changeSkin() {
 restartBtn.addEventListener('click', init);
 themeToggle.addEventListener('change', toggleTheme);
 skinSelect.addEventListener('change', changeSkin);
+saveScoreBtn.addEventListener('click', submitScore);
+playerNameInput.addEventListener('keydown', e => {
+  if (e.code === 'Enter') submitScore();
+});
+playBtn.addEventListener('click', () => {
+  startScreen.classList.add('hidden');
+  init();
+});
+resetScoresBtn.addEventListener('click', () => {
+  if (confirm('¿Seguro que quieres borrar los records?')) {
+    resetScores();
+  }
+});
 
 resumeBtn.addEventListener('click', () => {
   togglePause();
@@ -502,5 +641,6 @@ startLevelSelect.value = startLevel;
 renderControls(controlsListPanel);
 renderControls(controlsList);
 applyTheme();
-init();
 applySkin();
+renderScoreTable(startScoresEl);
+updateMaxLinesDisplay();
